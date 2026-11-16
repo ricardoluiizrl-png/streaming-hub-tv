@@ -1,9 +1,7 @@
-
 package com.ricardo.streaminghub
 
 import android.app.Activity
 import android.os.Bundle
-import android.content.Intent
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
@@ -13,16 +11,33 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
+import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.URL
+import java.util.concurrent.Executors
 
 class MainActivity : Activity() {
 
     private val backgroundColor = Color.rgb(16, 17, 22)
     private val accentColor = Color.rgb(85, 194, 255)
     private val textColor = Color.WHITE
+    private val cardColor = Color.rgb(39, 43, 54)
+
+    private val executor = Executors.newSingleThreadExecutor()
+
+    private lateinit var trendingContainer: LinearLayout
+    private lateinit var statusText: TextView
 
     private data class Service(
         val name: String,
         val packageName: String
+    )
+
+    private data class MovieItem(
+        val title: String,
+        val type: String,
+        val year: String,
+        val rating: String
     )
 
     private val services = listOf(
@@ -42,6 +57,7 @@ class MainActivity : Activity() {
         window.navigationBarColor = backgroundColor
 
         createHome()
+        loadTrending()
     }
 
     private fun createHome() {
@@ -91,6 +107,28 @@ class MainActivity : Activity() {
 
         content.addView(horizontal)
 
+        addSectionTitle(content, "EM ALTA NO TMDB")
+
+        statusText = TextView(this).apply {
+            text = "Carregando filmes e séries..."
+            textSize = 14f
+            setTextColor(Color.LTGRAY)
+            setPadding(0, 4, 0, 12)
+        }
+
+        content.addView(statusText)
+
+        trendingContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+        }
+
+        val trendingScroll = HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+            addView(trendingContainer)
+        }
+
+        content.addView(trendingScroll)
+
         addSectionTitle(content, "EXPLORAR")
 
         val categories = listOf(
@@ -108,9 +146,7 @@ class MainActivity : Activity() {
                 setTextColor(textColor)
                 gravity = Gravity.CENTER_VERTICAL
                 setPadding(18, 16, 18, 16)
-                background = roundedBackground(
-                    Color.rgb(34, 37, 46), 12
-                )
+                background = roundedBackground(cardColor, 12)
                 isFocusable = true
                 isFocusableInTouchMode = true
             }
@@ -124,12 +160,22 @@ class MainActivity : Activity() {
             content.addView(item, params)
         }
 
-        val footer = TextView(this).apply {
-            text = "STREAMING HUB • VERSÃO 1.0"
-            textSize = 11f
+        val attribution = TextView(this).apply {
+            text = "This product uses the TMDB API but is not endorsed or certified by TMDB."
+            textSize = 10f
             setTextColor(Color.GRAY)
             gravity = Gravity.CENTER
             setPadding(0, 24, 0, 12)
+        }
+
+        content.addView(attribution)
+
+        val footer = TextView(this).apply {
+            text = "STREAMING HUB • VERSÃO 1.1"
+            textSize = 11f
+            setTextColor(Color.GRAY)
+            gravity = Gravity.CENTER
+            setPadding(0, 8, 0, 12)
         }
 
         content.addView(footer)
@@ -148,6 +194,212 @@ class MainActivity : Activity() {
         setContentView(root)
     }
 
+    private fun loadTrending() {
+        val token = BuildConfig.TMDB_READ_ACCESS_TOKEN
+
+        if (token.isBlank()) {
+            statusText.text =
+                "Token TMDB não encontrado. Verifique o GitHub Actions."
+            return
+        }
+
+        executor.execute {
+            var connection: HttpURLConnection? = null
+
+            try {
+                val url = URL(
+                    "https://api.themoviedb.org/3/trending/all/week?language=pt-BR&region=BR"
+                )
+
+                connection = url.openConnection() as HttpURLConnection
+
+                connection.requestMethod = "GET"
+                connection.connectTimeout = 15000
+                connection.readTimeout = 15000
+                connection.setRequestProperty(
+                    "Authorization",
+                    "Bearer $token"
+                )
+                connection.setRequestProperty(
+                    "accept",
+                    "application/json"
+                )
+
+                val responseCode = connection.responseCode
+
+                val responseStream = if (responseCode in 200..299) {
+                    connection.inputStream
+                } else {
+                    connection.errorStream
+                }
+
+                val response = responseStream
+                    ?.bufferedReader()
+                    ?.use { it.readText() }
+                    ?: ""
+
+                if (responseCode !in 200..299) {
+                    throw Exception("Erro HTTP $responseCode")
+                }
+
+                val json = JSONObject(response)
+                val results = json.optJSONArray("results")
+
+                val items = mutableListOf<MovieItem>()
+
+                if (results != null) {
+                    for (i in 0 until minOf(results.length(), 15)) {
+                        val item = results.optJSONObject(i) ?: continue
+
+                        val title = item.optString("title")
+                            .takeIf { it.isNotBlank() }
+                            ?: item.optString("name")
+                                .takeIf { it.isNotBlank() }
+                            ?: continue
+
+                        val mediaType = when (
+                            item.optString("media_type")
+                        ) {
+                            "movie" -> "FILME"
+                            "tv" -> "SÉRIE"
+                            else -> "CONTEÚDO"
+                        }
+
+                        val date = item.optString("release_date")
+                            .takeIf { it.isNotBlank() }
+                            ?: item.optString("first_air_date")
+
+                        val year = if (date.length >= 4) {
+                            date.substring(0, 4)
+                        } else {
+                            "Ano não informado"
+                        }
+
+                        val rating = item.optDouble(
+                            "vote_average",
+                            0.0
+                        )
+
+                        items.add(
+                            MovieItem(
+                                title = title,
+                                type = mediaType,
+                                year = year,
+                                rating = if (rating > 0) {
+                                    "★ %.1f".format(
+                                        java.util.Locale.US,
+                                        rating
+                                    )
+                                } else {
+                                    "Sem avaliação"
+                                }
+                            )
+                        )
+                    }
+                }
+
+                runOnUiThread {
+                    if (items.isEmpty()) {
+                        statusText.text =
+                            "Nenhum título encontrado no momento."
+                    } else {
+                        showTrending(items)
+                    }
+                }
+
+            } catch (e: Exception) {
+                runOnUiThread {
+                    statusText.text = when {
+                        e.message?.contains("401") == true ->
+                            "Token TMDB inválido ou não autorizado."
+
+                        e.message?.contains("403") == true ->
+                            "Acesso ao TMDB negado."
+
+                        else ->
+                            "Não foi possível carregar o catálogo. Verifique a internet."
+                    }
+                }
+            } finally {
+                connection?.disconnect()
+            }
+        }
+    }
+
+    private fun showTrending(items: List<MovieItem>) {
+        trendingContainer.removeAllViews()
+
+        statusText.text = "Títulos em tendência nesta semana"
+
+        items.forEach { item ->
+            val card = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(14, 12, 14, 12)
+                background = roundedBackground(cardColor, 14)
+                isFocusable = true
+                isFocusableInTouchMode = true
+            }
+
+            val title = TextView(this).apply {
+                text = item.title
+                textSize = 16f
+                setTextColor(Color.WHITE)
+                setTypeface(null, Typeface.BOLD)
+                maxLines = 3
+            }
+
+            val type = TextView(this).apply {
+                text = item.type
+                textSize = 11f
+                setTextColor(accentColor)
+                setPadding(0, 10, 0, 4)
+            }
+
+            val details = TextView(this).apply {
+                text = "${item.year}  •  ${item.rating}"
+                textSize = 12f
+                setTextColor(Color.LTGRAY)
+            }
+
+            card.addView(title)
+            card.addView(type)
+            card.addView(details)
+
+            card.setOnFocusChangeListener { view, hasFocus ->
+                view.background = roundedBackground(
+                    if (hasFocus) accentColor else cardColor,
+                    14
+                )
+
+                title.setTextColor(
+                    if (hasFocus) Color.BLACK else Color.WHITE
+                )
+
+                type.setTextColor(
+                    if (hasFocus) Color.BLACK else accentColor
+                )
+
+                details.setTextColor(
+                    if (hasFocus) Color.BLACK else Color.LTGRAY
+                )
+            }
+
+            card.setOnClickListener {
+                Toast.makeText(
+                    this,
+                    item.title,
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+
+            val params = LinearLayout.LayoutParams(210, 125)
+            params.marginEnd = 12
+
+            trendingContainer.addView(card, params)
+        }
+    }
+
     private fun addSectionTitle(
         parent: LinearLayout,
         title: String
@@ -157,7 +409,7 @@ class MainActivity : Activity() {
             textSize = 15f
             setTextColor(accentColor)
             setTypeface(null, Typeface.BOLD)
-            setPadding(0, 16, 0, 12)
+            setPadding(0, 20, 0, 12)
         }
 
         parent.addView(label)
@@ -178,14 +430,11 @@ class MainActivity : Activity() {
             isFocusable = true
             isFocusableInTouchMode = true
 
-            background = roundedBackground(
-                Color.rgb(39, 43, 54), 14
-            )
+            background = roundedBackground(cardColor, 14)
 
             setOnFocusChangeListener { view, hasFocus ->
                 view.background = roundedBackground(
-                    if (hasFocus) accentColor
-                    else Color.rgb(39, 43, 54),
+                    if (hasFocus) accentColor else cardColor,
                     14
                 )
 
@@ -232,4 +481,10 @@ class MainActivity : Activity() {
             ).show()
         }
     }
+
+    override fun onDestroy() {
+        executor.shutdownNow()
+        super.onDestroy()
+    }
 }
+
