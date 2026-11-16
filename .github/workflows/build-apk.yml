@@ -1,4 +1,3 @@
-
 name: Build Streaming Hub TV
 
 on:
@@ -10,6 +9,9 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+
+    env:
+      TMDB_READ_ACCESS_TOKEN: ${{ secrets.TMDB_READ_ACCESS_TOKEN }}
 
     steps:
       - name: Baixar código
