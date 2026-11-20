@@ -6,7 +6,6 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Environment
 import android.provider.Settings
-import androidx.core.content.FileProvider
 import java.io.File
 import java.io.FileOutputStream
 import java.security.MessageDigest
@@ -657,7 +656,7 @@ class MainActivity : Activity() {
 
     private fun installHubApk(apk: File) {
         try {
-            val uri = FileProvider.getUriForFile(this, packageName + ".fileprovider", apk)
+            val uri = Uri.Builder().scheme("content").authority(packageName + ".fileprovider").appendPath("downloads").appendPath(apk.name).build()
             val install = Intent(Intent.ACTION_VIEW).apply {
                 setDataAndType(uri, "application/vnd.android.package-archive")
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
