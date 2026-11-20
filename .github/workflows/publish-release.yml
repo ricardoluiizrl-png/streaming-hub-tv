@@ -64,7 +64,9 @@ jobs:
           APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
           test -n "$APKSIGNER" || (echo "apksigner não encontrado no Android SDK." && exit 1)
           "$APKSIGNER" verify --verbose --print-certs "$APK"
-          "$APKSIGNER" verify --print-certs "$APK" | grep -F "2F:AE:85:0A:17:0F:B1:7E:E7:3F:B6:3B:79:6A:9A:1E:37:6D:01:CF:32:B1:7A:73:3A:D1:AA:AB:F7:1E:C6:C1"
+          ACTUAL_CERT_SHA256="$("$APKSIGNER" verify --print-certs "$APK" | awk -F': ' '/certificate SHA-256 digest/ { print tolower($2); exit }')"
+          EXPECTED_CERT_SHA256="2fae850a170fb17ee73fb63b796a9a1e376d01cf32b17a733ad1aaabf71ec6c1"
+          test "$ACTUAL_CERT_SHA256" = "$EXPECTED_CERT_SHA256" || (echo "O certificado do APK não corresponde à chave de assinatura cadastrada." && exit 1)
 
       - name: Gerar checksum SHA-256
         run: sha256sum app/build/outputs/apk/release/app-release.apk > app/build/outputs/apk/release/app-release.apk.sha256
