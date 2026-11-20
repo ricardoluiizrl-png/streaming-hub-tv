@@ -13,12 +13,37 @@ android {
         buildConfig = true
     }
 
+    signingConfigs {
+        create("release") {
+            val storePath = System.getenv("ANDROID_KEYSTORE_PATH")
+            if (!storePath.isNullOrBlank()) {
+                storeFile = file(storePath)
+                storePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("ANDROID_KEY_ALIAS")
+                keyPassword = System.getenv("ANDROID_KEY_PASSWORD")
+            }
+        }
+    }
+
+    // This app is distributed directly as an Android TV APK, not through Google Play.
+    // Keep the current TV compatibility target while validating newer target SDK behavior separately.
+    lint {
+        disable += "ExpiredTargetSdkVersion"
+    }
+
+    buildTypes {
+        getByName("release") {
+            isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("release")
+        }
+    }
+
     defaultConfig {
         applicationId = "com.ricardo.streaminghub"
         minSdk = 28
         targetSdk = 28
-        versionCode = 2
-        versionName = "1.1"
+        versionCode = 4
+        versionName = "1.3"
 
         buildConfigField(
             "String",
@@ -36,3 +61,4 @@ android {
         jvmTarget = "17"
     }
 }
+

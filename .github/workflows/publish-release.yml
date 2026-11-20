@@ -1,0 +1,89 @@
+name: Publicar atualização do Streaming Hub TV
+
+on:
+  push:
+    branches:
+      - feature/premium-tv-foundation
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+    steps:
+      - name: Baixar código
+        uses: actions/checkout@v4
+
+      - name: Configurar Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Configurar Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.7
+
+      - name: Validar e preparar chave de assinatura
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          test -n "$ANDROID_KEYSTORE_BASE64" || (echo "Configure ANDROID_KEYSTORE_BASE64." && exit 1)
+          test -n "$ANDROID_KEYSTORE_PASSWORD" || (echo "Configure ANDROID_KEYSTORE_PASSWORD." && exit 1)
+          test -n "$ANDROID_KEY_ALIAS" || (echo "Configure ANDROID_KEY_ALIAS." && exit 1)
+          test -n "$ANDROID_KEY_PASSWORD" || (echo "Configure ANDROID_KEY_PASSWORD." && exit 1)
+          python3 - <<'PY'
+          import os, re, sys
+          value = re.sub(r"\\s+", "", os.environ["ANDROID_KEYSTORE_BASE64"])
+          invalid = sum(1 for ch in value if ch not in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=")
+          print(f"Base64: {len(value)} caracteres; resto da divisão por 4: {len(value) % 4}; caracteres inválidos: {invalid}")
+          if not value or invalid or len(value) % 4 == 1:
+              sys.exit("ANDROID_KEYSTORE_BASE64 está vazio, contém caracteres inválidos ou está truncado.")
+          PY
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | tr -d '[:space:]' | base64 --decode > "$RUNNER_TEMP/streaming-hub-release.jks"
+          test -s "$RUNNER_TEMP/streaming-hub-release.jks"
+          echo "ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/streaming-hub-release.jks" >> "$GITHUB_ENV"
+
+      - name: Validar versão da tag
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          APP_VERSION="$(sed -n 's/^[[:space:]]*versionName = "\([^"]*\)".*/\1/p' app/build.gradle.kts | head -n 1)"
+          test -n "$APP_VERSION" || (echo "Não foi possível identificar versionName." && exit 1)
+          test "$TAG_VERSION" = "$APP_VERSION" || (echo "Tag $TAG_VERSION não corresponde à versão do app $APP_VERSION." && exit 1)
+
+      - name: Compilar APK assinado
+        env:
+          TMDB_READ_ACCESS_TOKEN: ${{ secrets.TMDB_READ_ACCESS_TOKEN }}
+        run: gradle assembleRelease
+
+      - name: Verificar assinatura do APK
+        run: |
+          APK="app/build/outputs/apk/release/app-release.apk"
+          test -s "$APK"
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          test -n "$APKSIGNER" || (echo "apksigner não encontrado no Android SDK." && exit 1)
+          "$APKSIGNER" verify --verbose --print-certs "$APK"
+          ACTUAL_CERT_SHA256="$("$APKSIGNER" verify --print-certs "$APK" | sed -nE 's/.*certificate SHA-256 digest: ([0-9A-Fa-f]+).*/\1/p' | head -n 1 | tr '[:upper:]' '[:lower:]')"
+          EXPECTED_CERT_SHA256="2fae850a170fb17ee73fb63b796a9a1e376d01cf32b17a733ad1aaabf71ec6c1"
+          test "$ACTUAL_CERT_SHA256" = "$EXPECTED_CERT_SHA256" || (echo "O certificado do APK não corresponde à chave de assinatura cadastrada." && exit 1)
+
+      - name: Gerar checksum SHA-256
+        run: sha256sum app/build/outputs/apk/release/app-release.apk > app/build/outputs/apk/release/app-release.apk.sha256
+
+      - name: Publicar APK e checksum
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            app/build/outputs/apk/release/app-release.apk
+            app/build/outputs/apk/release/app-release.apk.sha256
+          generate_release_notes: true
