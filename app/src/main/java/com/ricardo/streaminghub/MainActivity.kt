@@ -37,8 +37,9 @@ class MainActivity : Activity() {
     private lateinit var statusText: TextView
     private lateinit var catalogRow: LinearLayout
     private var currentItems: List<Media> = emptyList()
-    private val favoriteIds = mutableSetOf<Int>()
+    private val favoriteKeys = mutableSetOf<String>()
     private val favoriteItems = mutableListOf<Media>()
+    private var showingFavorites = false
 
     private data class Media(
         val id: Int,
@@ -73,7 +74,7 @@ class MainActivity : Activity() {
                 Media(obj.getInt("id"), obj.getString("title"), obj.getString("type"), obj.getString("year"), obj.getString("rating"), obj.getString("overview"), obj.getString("poster"), obj.getString("backdrop"))
             } catch (_: Exception) { null }
         })
-        favoriteIds.addAll(favoriteItems.map { it.id })
+        favoriteKeys.addAll(favoriteItems.map { mediaKey(it) })
         buildHome()
         loadCatalog("trending/all/week", "TENDÊNCIAS DA SEMANA")
     }
@@ -246,6 +247,7 @@ class MainActivity : Activity() {
     }
 
     private fun loadCatalog(endpoint: String, heading: String) {
+        showingFavorites = false
         statusText.text = "Carregando $heading..."
         workers.execute {
             var connection: HttpURLConnection? = null
@@ -397,7 +399,7 @@ class MainActivity : Activity() {
     }
 
     private fun showDetails(item: Media) {
-        val isFavorite = favoriteIds.contains(item.id)
+        val isFavorite = favoriteKeys.contains(mediaKey(item))
         AlertDialog.Builder(this)
             .setTitle(item.title)
             .setMessage("${item.type} • ${item.year} • ${item.rating}\n\n${item.overview.ifBlank { "Sinopse não disponível." }}")
@@ -406,19 +408,24 @@ class MainActivity : Activity() {
             .show()
     }
 
+    private fun mediaKey(item: Media): String = "${item.type.lowercase(Locale.ROOT)}:${item.id}"
+
     private fun toggleFavorite(item: Media) {
-        if (favoriteIds.add(item.id)) favoriteItems.add(item)
-        else favoriteItems.removeAll { it.id == item.id }
+        val key = mediaKey(item)
+        if (favoriteKeys.add(key)) favoriteItems.add(item)
+        else favoriteItems.removeAll { mediaKey(it) == key }
         val saved = favoriteItems.map { media ->
             JSONObject().put("id", media.id).put("title", media.title).put("type", media.type)
                 .put("year", media.year).put("rating", media.rating).put("overview", media.overview)
                 .put("poster", media.posterPath).put("backdrop", media.backdropPath).toString()
         }.toSet()
         getSharedPreferences("streaming_hub", MODE_PRIVATE).edit().putStringSet("favorites", saved).apply()
-        Toast.makeText(this, if (favoriteIds.contains(item.id)) "Adicionado à Minha Lista" else "Removido da Minha Lista", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, if (favoriteKeys.contains(key)) "Adicionado à Minha Lista" else "Removido da Minha Lista", Toast.LENGTH_SHORT).show()
+        if (showingFavorites) showFavorites()
     }
 
     private fun showFavorites() {
+        showingFavorites = true
         val favorites = favoriteItems.toList()
         catalogRow.removeAllViews()
         statusText.text = if (favorites.isEmpty()) "Abra os detalhes de um título e escolha Adicionar à minha lista." else "MINHA LISTA • ${favorites.size} TÍTULO(S)"
@@ -489,6 +496,7 @@ class MainActivity : Activity() {
                     }
                 }
                 runOnUiThread {
+                    showingFavorites = false
                     currentItems = found
                     catalogRow.removeAllViews()
                     statusText.text = "RESULTADOS PARA: $query"
