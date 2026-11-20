@@ -59,14 +59,22 @@ class MainActivity : Activity() {
         val backdropPath: String
     )
 
-    private data class Service(val name: String, val packageName: String, val fallback: String)
+    private data class Service(
+        val name: String,
+        val packageName: String,
+        val fallback: String,
+        val imageUrl: String = ""
+    )
 
     private val services = listOf(
-        Service("Netflix", "com.netflix.ninja", "N"),
-        Service("Prime Video", "com.amazon.amazonvideo.livingroom", "prime"),
+        Service("Netflix", "com.netflix.ninja", "N",
+            "https://ichef.bbci.co.uk/ace/ws/800/cpsprodpb/0BD6/production/_103403030_gettyimages-912865028.jpg.webp"),
+        Service("Prime Video", "com.amazon.amazonvideo.livingroom", "prime",
+            "https://t2.tudocdn.net/710772?w=768&h=460"),
         Service("Disney+", "com.disney.disneyplus", "D+"),
         Service("Max", "com.wbd.stream", "max"),
-        Service("Globoplay", "com.globo.globotv", "G"),
+        Service("Globoplay", "com.globo.globotv", "G",
+            "https://t2.tudocdn.net/710137?w=1920&h=1080"),
         Service("YouTube", "com.google.android.youtube.tv", "▶"),
         Service("Apple TV+", "com.apple.atve.androidtv", "tv+")
     )
@@ -367,10 +375,16 @@ class MainActivity : Activity() {
             background = rounded(Color.rgb(17, 13, 24), 12)
             clipToOutline = true
         }
-        try {
-            icon.setImageDrawable(packageManager.getApplicationIcon(service.packageName))
-        } catch (_: Exception) {
-            icon.visibility = View.GONE
+        if (service.imageUrl.isNotBlank()) {
+            icon.scaleType = ImageView.ScaleType.CENTER_CROP
+            loadImage(service.imageUrl, icon)
+        } else {
+            try {
+                icon.setImageDrawable(packageManager.getApplicationIcon(service.packageName))
+                icon.scaleType = ImageView.ScaleType.FIT_CENTER
+            } catch (_: Exception) {
+                icon.visibility = View.GONE
+            }
         }
         if (icon.visibility == View.VISIBLE) card.addView(icon, LinearLayout.LayoutParams(-1, dp(88)))
         else card.addView(label(service.fallback, 25, white, true).apply { gravity = Gravity.CENTER })
