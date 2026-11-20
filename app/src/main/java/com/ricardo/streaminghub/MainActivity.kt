@@ -27,9 +27,9 @@ import java.util.Locale
 import java.util.concurrent.Executors
 
 class MainActivity : Activity() {
-    private val bg = Color.rgb(7, 5, 12)
-    private val panel = Color.rgb(27, 21, 36)
-    private val purple = Color.rgb(190, 105, 255)
+    private var bg = Color.rgb(7, 5, 12)
+    private var panel = Color.rgb(27, 21, 36)
+    private var purple = Color.rgb(190, 105, 255)
     private val white = Color.WHITE
     private val workers = Executors.newFixedThreadPool(3)
     private val imageCache = object : android.util.LruCache<String, Bitmap>(16 * 1024 * 1024) {
@@ -59,20 +59,32 @@ class MainActivity : Activity() {
         val backdropPath: String
     )
 
-    private data class Service(val name: String, val packageName: String, val fallback: String)
+    private data class Service(
+        val name: String,
+        val packageName: String,
+        val fallback: String,
+        val imageUrl: String = ""
+    )
 
     private val services = listOf(
-        Service("Netflix", "com.netflix.ninja", "N"),
-        Service("Prime Video", "com.amazon.amazonvideo.livingroom", "prime"),
+        Service("Netflix", "com.netflix.ninja", "N",
+            "https://ichef.bbci.co.uk/ace/ws/800/cpsprodpb/0BD6/production/_103403030_gettyimages-912865028.jpg.webp"),
+        Service("Prime Video", "com.amazon.amazonvideo.livingroom", "prime",
+            "https://t2.tudocdn.net/710772?w=768&h=460"),
         Service("Disney+", "com.disney.disneyplus", "D+"),
         Service("Max", "com.wbd.stream", "max"),
-        Service("Globoplay", "com.globo.globotv", "G"),
+        Service("Globoplay", "com.globo.globotv", "G",
+            "https://t2.tudocdn.net/710137?w=1920&h=1080"),
         Service("YouTube", "com.google.android.youtube.tv", "▶"),
         Service("Apple TV+", "com.apple.atve.androidtv", "tv+")
     )
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val selectedTheme = HubPersonalization.loadTheme(this)
+        bg = selectedTheme.background
+        panel = selectedTheme.surface
+        purple = selectedTheme.accent
         window.statusBarColor = bg
         window.navigationBarColor = bg
         favoriteItems.addAll(getSharedPreferences("streaming_hub", MODE_PRIVATE).getStringSet("favorites", emptySet())!!.mapNotNull { raw ->
@@ -104,10 +116,15 @@ class MainActivity : Activity() {
             background = rounded(Color.rgb(38, 19, 54), 40)
         }, LinearLayout.LayoutParams(dp(50), dp(50)).apply { bottomMargin = dp(24) })
 
-        val navItems = listOf("⌂" to "Início", "▤" to "Filmes", "▣" to "Séries", "▷" to "Em alta", "◎" to "Aplicativos", "▣" to "Minha lista", "⌕" to "Buscar")
+        val navItems = listOf(
+            "⌂" to "Início", "✦" to "Lançamentos", "◷" to "Em breve",
+            "N" to "Netflix", "▶" to "Prime Video", "D+" to "Disney+",
+            "M" to "Max", "♡" to "Minha lista", "⌕" to "Buscar"
+        )
         navItems.forEachIndexed { index, item ->
-            val nav = label(item.first, 24, Color.LTGRAY, true).apply {
+            val nav = label(item.first, if (item.first.length > 1) 17 else 24, Color.LTGRAY, true).apply {
                 gravity = Gravity.CENTER
+                contentDescription = item.second
                 isFocusable = true
                 setOnFocusChangeListener { view, focused ->
                     view.background = rounded(if (focused) Color.rgb(58, 31, 78) else Color.TRANSPARENT, 14)
@@ -116,16 +133,18 @@ class MainActivity : Activity() {
                 setOnClickListener {
                     when (index) {
                         0 -> loadCatalog("trending/all/week", "TENDÊNCIAS DA SEMANA")
-                        1 -> loadCatalog("movie/popular", "FILMES POPULARES")
-                        2 -> loadCatalog("tv/popular", "SÉRIES POPULARES")
-                        3 -> loadCatalog("trending/all/week", "EM ALTA AGORA")
-                        4 -> Toast.makeText(this@MainActivity, "Desça até Seus aplicativos", Toast.LENGTH_SHORT).show()
-                        5 -> showFavorites()
-                        6 -> showSearch()
+                        1 -> loadCatalog("movie/now_playing", "LANÇAMENTOS NOS CINEMAS")
+                        2 -> loadCatalog("movie/upcoming", "EM BREVE")
+                        3 -> loadCatalog("discover/movie?with_watch_providers=8&watch_region=BR", "NETFLIX")
+                        4 -> loadCatalog("discover/movie?with_watch_providers=9&watch_region=BR", "PRIME VIDEO")
+                        5 -> loadCatalog("discover/movie?with_watch_providers=337&watch_region=BR", "DISNEY+")
+                        6 -> loadCatalog("discover/movie?with_watch_providers=1899&watch_region=BR", "MAX")
+                        7 -> showFavorites()
+                        8 -> showSearch()
                     }
                 }
             }
-            rail.addView(nav, LinearLayout.LayoutParams(dp(54), dp(54)).apply { bottomMargin = dp(7) })
+            rail.addView(nav, LinearLayout.LayoutParams(dp(54), dp(54)).apply { bottomMargin = dp(5) })
         }
 
         val scroll = ScrollView(this).apply {
@@ -143,13 +162,21 @@ class MainActivity : Activity() {
             gravity = Gravity.CENTER_VERTICAL
         }
         topBar.addView(label("STREAMING HUB", 21, white, true), LinearLayout.LayoutParams(0, dp(48), 1f))
-        listOf("♥", "♟", "⚙", "●").forEachIndexed { index, symbol ->
+        listOf("♥", "♟", "⚙", "⌕").forEachIndexed { index, symbol ->
             topBar.addView(label(symbol, 20, white, true).apply {
                 gravity = Gravity.CENTER
                 background = rounded(panel, 40)
                 isFocusable = true
                 isClickable = true
-                setOnClickListener { if (index == 2) checkForUpdate(true) }
+                contentDescription = when (index) { 0 -> "Minha lista"; 1 -> "Perfil"; 2 -> "Temas e atualizações"; else -> "Buscar" }
+                setOnClickListener {
+                    when (index) {
+                        0 -> showFavorites()
+                        1 -> showProfileSettings()
+                        2 -> showThemeSettings()
+                        3 -> showSearch()
+                    }
+                }
             }, LinearLayout.LayoutParams(dp(44), dp(44)).apply { marginStart = dp(9) })
         }
         pageContent.addView(topBar)
@@ -264,7 +291,8 @@ class MainActivity : Activity() {
             try {
                 val token = BuildConfig.TMDB_READ_ACCESS_TOKEN
                 if (token.isBlank()) throw Exception("Token TMDB ausente")
-                val url = URL("https://api.themoviedb.org/3/$endpoint?language=pt-BR&region=BR")
+                val separator = if (endpoint.contains("?")) "&" else "?"
+                val url = URL("https://api.themoviedb.org/3/$endpoint${separator}language=pt-BR&region=BR")
                 connection = url.openConnection() as HttpURLConnection
                 connection.connectTimeout = 12000
                 connection.readTimeout = 12000
@@ -367,10 +395,16 @@ class MainActivity : Activity() {
             background = rounded(Color.rgb(17, 13, 24), 12)
             clipToOutline = true
         }
-        try {
-            icon.setImageDrawable(packageManager.getApplicationIcon(service.packageName))
-        } catch (_: Exception) {
-            icon.visibility = View.GONE
+        if (service.imageUrl.isNotBlank()) {
+            icon.scaleType = ImageView.ScaleType.CENTER_CROP
+            loadImage(service.imageUrl, icon)
+        } else {
+            try {
+                icon.setImageDrawable(packageManager.getApplicationIcon(service.packageName))
+                icon.scaleType = ImageView.ScaleType.FIT_CENTER
+            } catch (_: Exception) {
+                icon.visibility = View.GONE
+            }
         }
         if (icon.visibility == View.VISIBLE) card.addView(icon, LinearLayout.LayoutParams(-1, dp(88)))
         else card.addView(label(service.fallback, 25, white, true).apply { gravity = Gravity.CENTER })
@@ -448,6 +482,62 @@ class MainActivity : Activity() {
         statusText.text = if (favorites.isEmpty()) "Abra os detalhes de um título e escolha Adicionar à minha lista." else "MINHA LISTA • ${favorites.size} TÍTULO(S)"
         favorites.forEach { catalogRow.addView(posterCard(it)) }
         if (favorites.isEmpty()) Toast.makeText(this, "Sua lista está vazia ou os títulos ainda não foram carregados.", Toast.LENGTH_LONG).show()
+    }
+
+    private fun showProfileSettings() {
+        val profile = HubPersonalization.loadProfile(this)
+        val form = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(8), dp(20), dp(4))
+        }
+        val name = EditText(this).apply {
+            hint = "Como devemos chamar você?"
+            setText(profile.displayName)
+            setSingleLine(true)
+        }
+        form.addView(name, LinearLayout.LayoutParams(-1, dp(52)))
+        form.addView(label("SEUS GÊNEROS FAVORITOS", 12, Color.LTGRAY, true).apply {
+            setPadding(0, dp(14), 0, dp(6))
+        })
+        val checks = mutableMapOf<String, CheckBox>()
+        HubPersonalization.genres.forEach { genre ->
+            val check = CheckBox(this).apply {
+                text = genre
+                setTextColor(white)
+                isChecked = profile.favoriteGenres.contains(genre)
+            }
+            checks[genre] = check
+            form.addView(check)
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Meu perfil")
+            .setView(ScrollView(this).apply { addView(form) })
+            .setPositiveButton("Salvar") { _, _ ->
+                HubPersonalization.saveProfile(this, HubProfile(
+                    displayName = name.text.toString(),
+                    favoriteGenres = checks.filterValues { it.isChecked }.keys
+                ))
+                Toast.makeText(this, "Perfil salvo!", Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton("Cancelar", null)
+            .show()
+    }
+
+    private fun showThemeSettings() {
+        val selected = HubPersonalization.loadTheme(this)
+        val names = HubPersonalization.themes.map { theme ->
+            if (theme.id == selected.id) "✓  ${theme.label}" else theme.label
+        }.toTypedArray()
+        AlertDialog.Builder(this)
+            .setTitle("Escolha seu tema")
+            .setItems(names) { _, which ->
+                HubPersonalization.saveTheme(this, HubPersonalization.themes[which].id)
+                Toast.makeText(this, "Tema aplicado.", Toast.LENGTH_SHORT).show()
+                recreate()
+            }
+            .setNeutralButton("Verificar atualizações") { _, _ -> checkForUpdate(true) }
+            .setNegativeButton("Fechar", null)
+            .show()
     }
 
     private fun showIntro(root: FrameLayout) {
