@@ -25,6 +25,12 @@ android {
         }
     }
 
+    // This app is distributed directly as an Android TV APK, not through Google Play.
+    // Keep the current TV compatibility target while validating newer target SDK behavior separately.
+    lint {
+        disable += "ExpiredTargetSdkVersion"
+    }
+
     buildTypes {
         getByName("release") {
             isMinifyEnabled = false
