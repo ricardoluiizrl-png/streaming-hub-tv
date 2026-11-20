@@ -13,12 +13,31 @@ android {
         buildConfig = true
     }
 
+    signingConfigs {
+        create("release") {
+            val storePath = System.getenv("ANDROID_KEYSTORE_PATH")
+            if (!storePath.isNullOrBlank()) {
+                storeFile = file(storePath)
+                storePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("ANDROID_KEY_ALIAS")
+                keyPassword = System.getenv("ANDROID_KEY_PASSWORD")
+            }
+        }
+    }
+
+    buildTypes {
+        getByName("release") {
+            isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("release")
+        }
+    }
+
     defaultConfig {
         applicationId = "com.ricardo.streaminghub"
         minSdk = 28
         targetSdk = 28
-        versionCode = 3
-        versionName = "1.2"
+        versionCode = 4
+        versionName = "1.3"
 
         buildConfigField(
             "String",
@@ -35,4 +54,8 @@ android {
     kotlinOptions {
         jvmTarget = "17"
     }
+}
+
+dependencies {
+    implementation("androidx.core:core:1.13.1")
 }
