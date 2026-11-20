@@ -40,7 +40,7 @@ jobs:
           test -n "$ANDROID_KEYSTORE_PASSWORD" || (echo "Configure ANDROID_KEYSTORE_PASSWORD." && exit 1)
           test -n "$ANDROID_KEY_ALIAS" || (echo "Configure ANDROID_KEY_ALIAS." && exit 1)
           test -n "$ANDROID_KEY_PASSWORD" || (echo "Configure ANDROID_KEY_PASSWORD." && exit 1)
-          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/streaming-hub-release.jks"
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | tr -d '[:space:]' | base64 --decode > "$RUNNER_TEMP/streaming-hub-release.jks"
           test -s "$RUNNER_TEMP/streaming-hub-release.jks"
           echo "ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/streaming-hub-release.jks" >> "$GITHUB_ENV"
 
