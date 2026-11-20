@@ -40,6 +40,7 @@ class MainActivity : Activity() {
     private lateinit var catalogRow: LinearLayout
     private var currentItems: List<Media> = emptyList()
     private val favoriteIds = mutableSetOf<Int>()
+    private val favoriteItems = mutableListOf<Media>()
 
     private data class Media(
         val id: Int,
@@ -68,7 +69,13 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         window.statusBarColor = bg
         window.navigationBarColor = bg
-        favoriteIds.addAll(getSharedPreferences("streaming_hub", MODE_PRIVATE).getStringSet("favorites", emptySet())!!.mapNotNull { it.toIntOrNull() })
+        favoriteItems.addAll(getSharedPreferences("streaming_hub", MODE_PRIVATE).getStringSet("favorites", emptySet())!!.mapNotNull { raw ->
+            try {
+                val obj = JSONObject(raw)
+                Media(obj.getInt("id"), obj.getString("title"), obj.getString("type"), obj.getString("year"), obj.getString("rating"), obj.getString("overview"), obj.getString("poster"), obj.getString("backdrop"))
+            } catch (_: Exception) { null }
+        })
+        favoriteIds.addAll(favoriteItems.map { it.id })
         buildHome()
         loadCatalog("trending/all/week", "TENDÊNCIAS DA SEMANA")
     }
@@ -356,7 +363,7 @@ class MainActivity : Activity() {
             icon.visibility = View.GONE
             card.addView(label(service.fallback, 25, white, true))
         }
-        if (icon.visibility == View.VISIBLE) card.addView(icon, LinearLayout.LayoutParams(-1, -1))
+        if (icon.visibility == View.VISIBLE) card.addView(icon, LinearLayout.LayoutParams(-1, dp(88)))
         else card.addView(label(service.name, 18, white, true).apply { gravity = Gravity.CENTER })
         card.addView(label(service.name, 12, white, true).apply { gravity = Gravity.CENTER })
         return card.apply {
@@ -403,14 +410,19 @@ class MainActivity : Activity() {
     }
 
     private fun toggleFavorite(item: Media) {
-        if (!favoriteIds.add(item.id)) favoriteIds.remove(item.id)
-        getSharedPreferences("streaming_hub", MODE_PRIVATE).edit()
-            .putStringSet("favorites", favoriteIds.map { it.toString() }.toSet()).apply()
+        if (favoriteIds.add(item.id)) favoriteItems.add(item)
+        else favoriteItems.removeAll { it.id == item.id }
+        val saved = favoriteItems.map { media ->
+            JSONObject().put("id", media.id).put("title", media.title).put("type", media.type)
+                .put("year", media.year).put("rating", media.rating).put("overview", media.overview)
+                .put("poster", media.posterPath).put("backdrop", media.backdropPath).toString()
+        }.toSet()
+        getSharedPreferences("streaming_hub", MODE_PRIVATE).edit().putStringSet("favorites", saved).apply()
         Toast.makeText(this, if (favoriteIds.contains(item.id)) "Adicionado à Minha Lista" else "Removido da Minha Lista", Toast.LENGTH_SHORT).show()
     }
 
     private fun showFavorites() {
-        val favorites = currentItems.filter { favoriteIds.contains(it.id) }
+        val favorites = favoriteItems.toList()
         catalogRow.removeAllViews()
         statusText.text = if (favorites.isEmpty()) "Abra os detalhes de um título e escolha Adicionar à minha lista." else "MINHA LISTA • ${favorites.size} TÍTULO(S)"
         favorites.forEach { catalogRow.addView(posterCard(it)) }
