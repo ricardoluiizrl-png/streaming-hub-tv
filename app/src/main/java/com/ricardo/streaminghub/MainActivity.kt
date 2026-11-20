@@ -493,7 +493,7 @@ class MainActivity : Activity() {
         val name = EditText(this).apply {
             hint = "Como devemos chamar você?"
             setText(profile.displayName)
-            singleLine = true
+            setSingleLine(true)
         }
         form.addView(name, LinearLayout.LayoutParams(-1, dp(52)))
         form.addView(label("SEUS GÊNEROS FAVORITOS", 12, Color.LTGRAY, true).apply {
