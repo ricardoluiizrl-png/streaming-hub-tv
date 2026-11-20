@@ -2,6 +2,14 @@ package com.ricardo.streaminghub
 
 import android.app.Activity
 import android.app.AlertDialog
+import android.content.Intent
+import android.net.Uri
+import android.os.Environment
+import android.provider.Settings
+import androidx.core.content.FileProvider
+import java.io.File
+import java.io.FileOutputStream
+import java.security.MessageDigest
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Color
@@ -77,6 +85,7 @@ class MainActivity : Activity() {
         favoriteKeys.addAll(favoriteItems.map { mediaKey(it) })
         buildHome()
         loadCatalog("trending/all/week", "TENDÊNCIAS DA SEMANA")
+        checkForUpdate(false)
     }
 
     private fun buildHome() {
@@ -135,11 +144,13 @@ class MainActivity : Activity() {
             gravity = Gravity.CENTER_VERTICAL
         }
         topBar.addView(label("STREAMING HUB", 21, white, true), LinearLayout.LayoutParams(0, dp(48), 1f))
-        listOf("♥", "♟", "⚙", "●").forEach { symbol ->
+        listOf("♥", "♟", "⚙", "●").forEachIndexed { index, symbol ->
             topBar.addView(label(symbol, 20, white, true).apply {
                 gravity = Gravity.CENTER
                 background = rounded(panel, 40)
                 isFocusable = true
+                isClickable = true
+                setOnClickListener { if (index == 2) checkForUpdate(true) }
             }, LinearLayout.LayoutParams(dp(44), dp(44)).apply { marginStart = dp(9) })
         }
         pageContent.addView(topBar)
@@ -514,6 +525,158 @@ class MainActivity : Activity() {
                 }
             } catch (_: Exception) {
                 runOnUiThread { statusText.text = "Falha na busca. Tente novamente." }
+            }
+        }
+    }
+
+
+    private data class HubRelease(val version: String, val apk: String, val checksum: String, val notes: String)
+
+    private fun checkForUpdate(manual: Boolean) {
+        if (manual) Toast.makeText(this, "Verificando atualizações...", Toast.LENGTH_SHORT).show()
+        workers.execute {
+            var connection: HttpURLConnection? = null
+            try {
+                connection = URL("https://api.github.com/repos/ricardoluiizrl-png/streaming-hub-tv/releases/latest").openConnection() as HttpURLConnection
+                connection.connectTimeout = 12000
+                connection.readTimeout = 12000
+                connection.setRequestProperty("Accept", "application/vnd.github+json")
+                connection.setRequestProperty("User-Agent", "StreamingHubTV")
+                if (connection.responseCode == 404) {
+                    if (manual) runOnUiThread { Toast.makeText(this, "Ainda não há atualização publicada.", Toast.LENGTH_LONG).show() }
+                    return@execute
+                }
+                if (connection.responseCode !in 200..299) throw Exception("GitHub indisponível")
+                val release = JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
+                val assets = release.optJSONArray("assets") ?: throw Exception("Assets ausentes")
+                var apk = ""
+                var checksum = ""
+                for (i in 0 until assets.length()) {
+                    val asset = assets.optJSONObject(i) ?: continue
+                    val name = asset.optString("name")
+                    if (name.endsWith(".apk", true)) apk = asset.optString("browser_download_url")
+                    if (name.endsWith(".apk.sha256", true)) checksum = asset.optString("browser_download_url")
+                }
+                val remote = release.optString("tag_name").removePrefix("v")
+                val local = packageManager.getPackageInfo(packageName, 0).versionName ?: "1.0"
+                if (remote.isBlank() || apk.isBlank() || checksum.isBlank()) throw Exception("Release sem APK/checksum")
+                if (compareHubVersions(remote, local) > 0) {
+                    val info = HubRelease(remote, apk, checksum, release.optString("body"))
+                    runOnUiThread {
+                        AlertDialog.Builder(this)
+                            .setTitle("Nova versão disponível: " + info.version)
+                            .setMessage((info.notes.ifBlank { "Uma nova versão está pronta." }).take(1000) + "\n\nBaixar e instalar agora? O Android pedirá confirmação.")
+                            .setPositiveButton("Atualizar") { _, _ -> downloadHubUpdate(info) }
+                            .setNegativeButton("Depois", null)
+                            .show()
+                    }
+                } else if (manual) {
+                    runOnUiThread { Toast.makeText(this, "O Streaming Hub já está atualizado.", Toast.LENGTH_LONG).show() }
+                }
+            } catch (_: Exception) {
+                if (manual) runOnUiThread { Toast.makeText(this, "Não foi possível verificar atualizações.", Toast.LENGTH_LONG).show() }
+            } finally {
+                connection?.disconnect()
+            }
+        }
+    }
+
+    private fun compareHubVersions(remote: String, local: String): Int {
+        val a = remote.split('.', '-', '+').map { it.toIntOrNull() ?: 0 }
+        val b = local.removePrefix("v").split('.', '-', '+').map { it.toIntOrNull() ?: 0 }
+        for (i in 0 until maxOf(a.size, b.size)) {
+            val x = a.getOrElse(i) { 0 }
+            val y = b.getOrElse(i) { 0 }
+            if (x != y) return x.compareTo(y)
+        }
+        return 0
+    }
+
+    private fun downloadHubUpdate(info: HubRelease) {
+        val progress = ProgressBar(this).apply { isIndeterminate = true }
+        val dialog = AlertDialog.Builder(this).setTitle("Baixando atualização").setView(progress).setCancelable(false).create()
+        dialog.show()
+        workers.execute {
+            try {
+                val apkFile = File(getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "streaming-hub-update.apk")
+                val apkConnection = URL(info.apk).openConnection() as HttpURLConnection
+                apkConnection.connectTimeout = 15000
+                apkConnection.readTimeout = 30000
+                apkConnection.setRequestProperty("User-Agent", "StreamingHubTV")
+                if (apkConnection.responseCode !in 200..299) throw Exception("Download do APK falhou")
+                apkConnection.inputStream.use { input -> FileOutputStream(apkFile).use { output -> input.copyTo(output) } }
+                apkConnection.disconnect()
+
+                val sumConnection = URL(info.checksum).openConnection() as HttpURLConnection
+                sumConnection.connectTimeout = 12000
+                sumConnection.readTimeout = 12000
+                sumConnection.setRequestProperty("User-Agent", "StreamingHubTV")
+                val expected = sumConnection.inputStream.bufferedReader().use { it.readText() }.trim().split(Regex("\\s+"))[0]
+                sumConnection.disconnect()
+
+                val digest = MessageDigest.getInstance("SHA-256")
+                apkFile.inputStream().use { input ->
+                    val buffer = ByteArray(8192)
+                    while (true) {
+                        val count = input.read(buffer)
+                        if (count < 0) break
+                        digest.update(buffer, 0, count)
+                    }
+                }
+                val actual = digest.digest().joinToString("") { "%02x".format(it) }
+                if (expected.length != 64 || !actual.equals(expected, true)) throw Exception("Checksum inválido")
+                runOnUiThread {
+                    dialog.dismiss()
+                    getSharedPreferences("streaming_hub", MODE_PRIVATE).edit().putString("pending_update_apk", apkFile.absolutePath).apply()
+                    continueHubInstall(apkFile)
+                }
+            } catch (_: Exception) {
+                runOnUiThread {
+                    dialog.dismiss()
+                    AlertDialog.Builder(this).setTitle("Falha na atualização")
+                        .setMessage("Não foi possível baixar ou validar o APK.")
+                        .setPositiveButton("OK", null).show()
+                }
+            }
+        }
+    }
+
+    private fun continueHubInstall(apk: File) {
+        if (android.os.Build.VERSION.SDK_INT >= 26 && !packageManager.canRequestPackageInstalls()) {
+            AlertDialog.Builder(this)
+                .setTitle("Permitir instalação")
+                .setMessage("Autorize o Streaming Hub TV a instalar atualizações. Depois, volte ao aplicativo.")
+                .setPositiveButton("Abrir configurações") { _, _ ->
+                    startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:" + packageName)))
+                }
+                .setNegativeButton("Cancelar", null).show()
+        } else {
+            installHubApk(apk)
+        }
+    }
+
+    private fun installHubApk(apk: File) {
+        try {
+            val uri = FileProvider.getUriForFile(this, packageName + ".fileprovider", apk)
+            val install = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, "application/vnd.android.package-archive")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            getSharedPreferences("streaming_hub", MODE_PRIVATE).edit().remove("pending_update_apk").apply()
+            startActivity(install)
+        } catch (_: Exception) {
+            Toast.makeText(this, "Não foi possível abrir o instalador do Android.", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (android.os.Build.VERSION.SDK_INT >= 26 && packageManager.canRequestPackageInstalls()) {
+            val pending = getSharedPreferences("streaming_hub", MODE_PRIVATE).getString("pending_update_apk", null)
+            if (!pending.isNullOrBlank()) {
+                val file = File(pending)
+                if (file.exists()) installHubApk(file)
+                else getSharedPreferences("streaming_hub", MODE_PRIVATE).edit().remove("pending_update_apk").apply()
             }
         }
     }
