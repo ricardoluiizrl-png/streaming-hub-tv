@@ -8,8 +8,6 @@ import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -361,10 +359,9 @@ class MainActivity : Activity() {
             icon.setImageDrawable(packageManager.getApplicationIcon(service.packageName))
         } catch (_: Exception) {
             icon.visibility = View.GONE
-            card.addView(label(service.fallback, 25, white, true))
         }
         if (icon.visibility == View.VISIBLE) card.addView(icon, LinearLayout.LayoutParams(-1, dp(88)))
-        else card.addView(label(service.name, 18, white, true).apply { gravity = Gravity.CENTER })
+        else card.addView(label(service.fallback, 25, white, true).apply { gravity = Gravity.CENTER })
         card.addView(label(service.name, 12, white, true).apply { gravity = Gravity.CENTER })
         return card.apply {
             layoutParams = LinearLayout.LayoutParams(dp(184), dp(132)).apply { marginEnd = dp(14) }
