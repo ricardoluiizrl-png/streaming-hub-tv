@@ -408,7 +408,14 @@ class MainActivity : Activity() {
             .show()
     }
 
-    private fun mediaKey(item: Media): String = "${item.type.lowercase(Locale.ROOT)}:${item.id}"
+    private fun mediaKey(item: Media): String {
+        val kind = when (item.type.lowercase(Locale.ROOT)) {
+            "filme", "movie" -> "movie"
+            "série", "serie", "tv" -> "tv"
+            else -> item.type.lowercase(Locale.ROOT)
+        }
+        return "$kind:${item.id}"
+    }
 
     private fun toggleFavorite(item: Media) {
         val key = mediaKey(item)
@@ -485,12 +492,14 @@ class MainActivity : Activity() {
                 if (array != null) {
                     for (i in 0 until minOf(array.length(), 16)) {
                         val obj = array.optJSONObject(i) ?: continue
+                        val mediaType = obj.optString("media_type")
+                        if (mediaType != "movie" && mediaType != "tv") continue
                         val title = obj.optString("title").ifBlank { obj.optString("name") }
                         if (title.isNotBlank()) {
                             val date = obj.optString("release_date").ifBlank { obj.optString("first_air_date") }
                             val score = obj.optDouble("vote_average", 0.0)
-                            found.add(Media(obj.optInt("id"), title, obj.optString("media_type").uppercase(Locale.ROOT),
-                                date.take(4).ifBlank { "—" }, String.format(Locale.US, "★ %.1f", score),
+                            found.add(Media(obj.optInt("id"), title, if (mediaType == "tv") "SÉRIE" else "FILME",
+                                date.take(4).ifBlank { "—" }, if (score > 0) String.format(Locale.US, "★ %.1f", score) else "Sem nota",
                                 obj.optString("overview"), obj.optString("poster_path"), obj.optString("backdrop_path")))
                         }
                     }
