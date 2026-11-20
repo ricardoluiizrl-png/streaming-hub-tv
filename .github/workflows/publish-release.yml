@@ -2,6 +2,8 @@ name: Publicar atualização do Streaming Hub TV
 
 on:
   push:
+    branches:
+      - feature/premium-tv-foundation
     tags:
       - "v*"
 
@@ -39,17 +41,36 @@ jobs:
           test -n "$ANDROID_KEY_ALIAS" || (echo "Configure ANDROID_KEY_ALIAS." && exit 1)
           test -n "$ANDROID_KEY_PASSWORD" || (echo "Configure ANDROID_KEY_PASSWORD." && exit 1)
           echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/streaming-hub-release.jks"
+          test -s "$RUNNER_TEMP/streaming-hub-release.jks"
           echo "ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/streaming-hub-release.jks" >> "$GITHUB_ENV"
+
+      - name: Validar versão da tag
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          APP_VERSION="$(sed -n 's/^[[:space:]]*versionName = "\([^"]*\)".*/\1/p' app/build.gradle.kts | head -n 1)"
+          test -n "$APP_VERSION" || (echo "Não foi possível identificar versionName." && exit 1)
+          test "$TAG_VERSION" = "$APP_VERSION" || (echo "Tag $TAG_VERSION não corresponde à versão do app $APP_VERSION." && exit 1)
 
       - name: Compilar APK assinado
         env:
           TMDB_READ_ACCESS_TOKEN: ${{ secrets.TMDB_READ_ACCESS_TOKEN }}
         run: gradle assembleRelease
 
+      - name: Verificar assinatura do APK
+        run: |
+          APK="app/build/outputs/apk/release/app-release.apk"
+          test -s "$APK"
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          test -n "$APKSIGNER" || (echo "apksigner não encontrado no Android SDK." && exit 1)
+          "$APKSIGNER" verify --verbose --print-certs "$APK"
+          "$APKSIGNER" verify --print-certs "$APK" | grep -F "2F:AE:85:0A:17:0F:B1:7E:E7:3F:B6:3B:79:6A:9A:1E:37:6D:01:CF:32:B1:7A:73:3A:D1:AA:AB:F7:1E:C6:C1"
+
       - name: Gerar checksum SHA-256
         run: sha256sum app/build/outputs/apk/release/app-release.apk > app/build/outputs/apk/release/app-release.apk.sha256
 
       - name: Publicar APK e checksum
+        if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           files: |
