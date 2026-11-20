@@ -40,6 +40,14 @@ jobs:
           test -n "$ANDROID_KEYSTORE_PASSWORD" || (echo "Configure ANDROID_KEYSTORE_PASSWORD." && exit 1)
           test -n "$ANDROID_KEY_ALIAS" || (echo "Configure ANDROID_KEY_ALIAS." && exit 1)
           test -n "$ANDROID_KEY_PASSWORD" || (echo "Configure ANDROID_KEY_PASSWORD." && exit 1)
+          python3 - <<'PY'
+          import os, re, sys
+          value = re.sub(r"\\s+", "", os.environ["ANDROID_KEYSTORE_BASE64"])
+          invalid = sum(1 for ch in value if ch not in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=")
+          print(f"Base64: {len(value)} caracteres; resto da divisão por 4: {len(value) % 4}; caracteres inválidos: {invalid}")
+          if not value or invalid or len(value) % 4 == 1:
+              sys.exit("ANDROID_KEYSTORE_BASE64 está vazio, contém caracteres inválidos ou está truncado.")
+          PY
           printf '%s' "$ANDROID_KEYSTORE_BASE64" | tr -d '[:space:]' | base64 --decode > "$RUNNER_TEMP/streaming-hub-release.jks"
           test -s "$RUNNER_TEMP/streaming-hub-release.jks"
           echo "ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/streaming-hub-release.jks" >> "$GITHUB_ENV"
