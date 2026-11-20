@@ -62,6 +62,3 @@ android {
     }
 }
 
-dependencies {
-    implementation("androidx.core:core:1.13.1")
-}
