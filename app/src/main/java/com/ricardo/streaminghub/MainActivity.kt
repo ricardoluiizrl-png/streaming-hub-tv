@@ -8,6 +8,8 @@ import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -37,6 +39,7 @@ class MainActivity : Activity() {
     private lateinit var statusText: TextView
     private lateinit var catalogRow: LinearLayout
     private var currentItems: List<Media> = emptyList()
+    private val favoriteIds = mutableSetOf<Int>()
 
     private data class Media(
         val id: Int,
@@ -65,12 +68,13 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         window.statusBarColor = bg
         window.navigationBarColor = bg
+        favoriteIds.addAll(getSharedPreferences("streaming_hub", MODE_PRIVATE).getStringSet("favorites", emptySet())!!.mapNotNull { it.toIntOrNull() })
         buildHome()
         loadCatalog("trending/all/week", "TENDÊNCIAS DA SEMANA")
     }
 
     private fun buildHome() {
-        val root = LinearLayout(this).apply {
+        val contentRoot = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             setBackgroundColor(bg)
         }
@@ -102,7 +106,7 @@ class MainActivity : Activity() {
                         2 -> loadCatalog("tv/popular", "SÉRIES POPULARES")
                         3 -> loadCatalog("trending/all/week", "EM ALTA AGORA")
                         4 -> Toast.makeText(this@MainActivity, "Desça até Seus aplicativos", Toast.LENGTH_SHORT).show()
-                        5 -> Toast.makeText(this@MainActivity, "Sua lista pessoal estará disponível em uma próxima atualização.", Toast.LENGTH_SHORT).show()
+                        5 -> showFavorites()
                         6 -> showSearch()
                     }
                 }
@@ -218,9 +222,12 @@ class MainActivity : Activity() {
         })
 
         scroll.addView(pageContent)
-        root.addView(rail, LinearLayout.LayoutParams(dp(72), -1))
-        root.addView(scroll, LinearLayout.LayoutParams(0, -1, 1f))
+        contentRoot.addView(rail, LinearLayout.LayoutParams(dp(72), -1))
+        contentRoot.addView(scroll, LinearLayout.LayoutParams(0, -1, 1f))
+        val root = FrameLayout(this)
+        root.addView(contentRoot, FrameLayout.LayoutParams(-1, -1))
         setContentView(root)
+        showIntro(root)
     }
 
     private fun addSection(title: String, subtitle: String) {
@@ -310,16 +317,17 @@ class MainActivity : Activity() {
         val poster = ImageView(this).apply {
             scaleType = ImageView.ScaleType.CENTER_CROP
             background = rounded(Color.rgb(38, 32, 44), 9)
+            clipToOutline = true
         }
-        card.addView(poster, LinearLayout.LayoutParams(dp(136), dp(198)))
-        if (item.posterPath.isNotBlank()) {
-            loadImage("https://image.tmdb.org/t/p/w342${item.posterPath}", poster)
-        }
+        card.addView(poster, LinearLayout.LayoutParams(dp(210), dp(118)))
+        val imagePath = item.backdropPath.ifBlank { item.posterPath }
+        val imageSize = if (item.backdropPath.isNotBlank()) "w780" else "w342"
+        if (imagePath.isNotBlank()) loadImage("https://image.tmdb.org/t/p/$imageSize$imagePath", poster)
         card.addView(label(item.title, 13, white, true).apply { maxLines = 2 },
-            LinearLayout.LayoutParams(dp(136), -2).apply { topMargin = dp(7) })
+            LinearLayout.LayoutParams(dp(210), -2).apply { topMargin = dp(7) })
         card.addView(label("${item.year}  •  ${item.rating}", 11, Color.LTGRAY, false))
         return card.apply {
-            layoutParams = LinearLayout.LayoutParams(dp(148), -2).apply { marginEnd = dp(11) }
+            layoutParams = LinearLayout.LayoutParams(dp(222), -2).apply { marginEnd = dp(12) }
         }
     }
 
@@ -337,17 +345,23 @@ class MainActivity : Activity() {
             }
             setOnClickListener { openService(service) }
         }
-        val icon = ImageView(this).apply { scaleType = ImageView.ScaleType.FIT_CENTER }
+        val icon = ImageView(this).apply {
+            scaleType = ImageView.ScaleType.CENTER_CROP
+            background = rounded(Color.rgb(17, 13, 24), 12)
+            clipToOutline = true
+        }
         try {
             icon.setImageDrawable(packageManager.getApplicationIcon(service.packageName))
         } catch (_: Exception) {
             icon.visibility = View.GONE
             card.addView(label(service.fallback, 25, white, true))
         }
-        if (icon.visibility == View.VISIBLE) card.addView(icon, LinearLayout.LayoutParams(dp(52), dp(52)))
-        card.addView(label(service.name, 11, white, true))
+        if (icon.visibility == View.VISIBLE) card.addView(icon, LinearLayout.LayoutParams(-1, -1))
+        else card.addView(label(service.name, 18, white, true).apply { gravity = Gravity.CENTER })
+        card.addView(label(service.name, 12, white, true).apply { gravity = Gravity.CENTER })
         return card.apply {
-            layoutParams = LinearLayout.LayoutParams(dp(112), dp(100)).apply { marginEnd = dp(12) }
+            layoutParams = LinearLayout.LayoutParams(dp(184), dp(132)).apply { marginEnd = dp(14) }
+            setPadding(dp(7), dp(7), dp(7), dp(7))
         }
     }
 
@@ -379,11 +393,50 @@ class MainActivity : Activity() {
     }
 
     private fun showDetails(item: Media) {
+        val isFavorite = favoriteIds.contains(item.id)
         AlertDialog.Builder(this)
             .setTitle(item.title)
-            .setMessage("${item.type} • ${item.year} • ${item.rating}\n\n${item.overview}")
-            .setPositiveButton("Fechar", null)
+            .setMessage("${item.type} • ${item.year} • ${item.rating}\n\n${item.overview.ifBlank { "Sinopse não disponível." }}")
+            .setPositiveButton(if (isFavorite) "Remover da minha lista" else "Adicionar à minha lista") { _, _ -> toggleFavorite(item) }
+            .setNegativeButton("Fechar", null)
             .show()
+    }
+
+    private fun toggleFavorite(item: Media) {
+        if (!favoriteIds.add(item.id)) favoriteIds.remove(item.id)
+        getSharedPreferences("streaming_hub", MODE_PRIVATE).edit()
+            .putStringSet("favorites", favoriteIds.map { it.toString() }.toSet()).apply()
+        Toast.makeText(this, if (favoriteIds.contains(item.id)) "Adicionado à Minha Lista" else "Removido da Minha Lista", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun showFavorites() {
+        val favorites = currentItems.filter { favoriteIds.contains(it.id) }
+        catalogRow.removeAllViews()
+        statusText.text = if (favorites.isEmpty()) "Abra os detalhes de um título e escolha Adicionar à minha lista." else "MINHA LISTA • ${favorites.size} TÍTULO(S)"
+        favorites.forEach { catalogRow.addView(posterCard(it)) }
+        if (favorites.isEmpty()) Toast.makeText(this, "Sua lista está vazia ou os títulos ainda não foram carregados.", Toast.LENGTH_LONG).show()
+    }
+
+    private fun showIntro(root: FrameLayout) {
+        val overlay = FrameLayout(this).apply { setBackgroundColor(bg) }
+        val mark = TextView(this).apply {
+            text = "STREAMING HUB"
+            textSize = 30f
+            setTextColor(white)
+            setTypeface(null, Typeface.BOLD)
+            gravity = Gravity.CENTER
+            letterSpacing = 0.12f
+            alpha = 0f
+            scaleX = 0.88f
+            scaleY = 0.88f
+        }
+        overlay.addView(mark, FrameLayout.LayoutParams(-1, -1))
+        root.addView(overlay, FrameLayout.LayoutParams(-1, -1))
+        mark.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(420).withEndAction {
+            mark.animate().alpha(0f).setStartDelay(420).setDuration(260).withEndAction {
+                overlay.animate().alpha(0f).setDuration(220).withEndAction { root.removeView(overlay) }.start()
+            }.start()
+        }.start()
     }
 
     private fun showSearch() {
