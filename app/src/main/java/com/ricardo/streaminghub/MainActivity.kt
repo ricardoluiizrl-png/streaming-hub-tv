@@ -113,7 +113,7 @@ class MainActivity : Activity() {
         }
         rail.addView(label("N", 24, purple, true).apply {
             gravity = Gravity.CENTER
-            background = rounded(Color.rgb(38, 19, 54), 40)
+            background = rounded(panel, 40)
         }, LinearLayout.LayoutParams(dp(50), dp(50)).apply { bottomMargin = dp(24) })
 
         val navItems = listOf(
@@ -127,7 +127,7 @@ class MainActivity : Activity() {
                 contentDescription = item.second
                 isFocusable = true
                 setOnFocusChangeListener { view, focused ->
-                    view.background = rounded(if (focused) Color.rgb(58, 31, 78) else Color.TRANSPARENT, 14)
+                    view.background = rounded(if (focused) purple else Color.TRANSPARENT, 14)
                     (view as TextView).setTextColor(if (focused) white else Color.LTGRAY)
                 }
                 setOnClickListener {
@@ -353,7 +353,7 @@ class MainActivity : Activity() {
             isFocusable = true
             isClickable = true
             setOnFocusChangeListener { view, focused ->
-                view.background = rounded(if (focused) Color.rgb(76, 43, 99) else panel, 12)
+                view.background = rounded(if (focused) purple else panel, 12)
                 view.scaleX = if (focused) 1.04f else 1f
                 view.scaleY = if (focused) 1.04f else 1f
             }
@@ -384,7 +384,7 @@ class MainActivity : Activity() {
             isFocusable = true
             isClickable = true
             setOnFocusChangeListener { view, focused ->
-                view.background = rounded(if (focused) Color.rgb(75, 42, 96) else panel, 14)
+                view.background = rounded(if (focused) purple else panel, 14)
                 view.scaleX = if (focused) 1.06f else 1f
                 view.scaleY = if (focused) 1.06f else 1f
             }
